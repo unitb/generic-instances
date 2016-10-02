@@ -1,6 +1,7 @@
 {-# LANGUAGE TypeOperators
         , QuasiQuotes
         , StandaloneDeriving
+        , CPP
         , ConstraintKinds
         , RankNTypes
         , TemplateHaskell
@@ -33,12 +34,20 @@ where
 
 import Control.DeepSeq
 import Control.Monad.Fix
+#if MIN_VERSION_transformers_compat(0,5,0)
 import Control.Monad.Trans.Instances ()
+#else
+#endif
 import Control.Lens
 
 import Data.Default
 import Data.Either.Validation
+
+#if MIN_VERSION_transformers(0,5,0)
+import Prelude.Extras hiding (Lift1)
+#else
 import Data.Functor.Classes
+#endif
 import Data.Functor.Compose
 import Data.Hashable
 import Data.DList (DList)
@@ -109,8 +118,6 @@ class Applicative f => MapFields a (f :: * -> *) where
     type Mapped a f :: * -> *
     put :: f (a p) -> Mapped a f p
     get :: Mapped a f p -> f (a p)
-    mapped :: Iso' (f (a p)) (Mapped a f p)
-    mapped = iso put get
 
 instance MapFields c f => MapFields (M1 a b c) f where
     type Mapped (M1 a b c) f = M1 a b (Mapped c f)
@@ -291,16 +298,25 @@ listOf' (Compose cmd) = Compose $ listOf <$> cmd
 arbitrary' :: Arbitrary a => Compose Maybe Gen a
 arbitrary' = Compose $ Just arbitrary
 
+#if MIN_VERSION_transformers(0,5,0)
+#else
+instance Semigroup (DList a) where
+
 instance Eq1 Proxy where
     eq1 = (==)
-instance Eq1 NonEmpty where
-    eq1 = (==)
-
-instance Ord1 NonEmpty where
-    compare1 = compare
 
 instance Show1 Proxy where
     showsPrec1 = showsPrec
+#endif
+instance Eq1 NonEmpty where
+#if MIN_VERSION_transformers(0,5,0)
+    (==#) = (==)
+#else
+    eq1 = (==)
+#endif
+
+instance Ord1 NonEmpty where
+    compare1 = compare
 
 instance Show1 NonEmpty where
     showsPrec1 = showsPrec
@@ -308,11 +324,14 @@ instance Show1 NonEmpty where
 instance (Show1 f,Show a) => Show (OnFunctor f a) where
     show = show1 . getFunctor
 
+#if MIN_VERSION_transformers(0,5,0)
+#else
 show1 :: (Show a, Show1 f) => f a -> String
 show1 x = showsPrec1 0 x ""
 
 shows1 :: (Show a, Show1 f) => f a -> ShowS
 shows1 = showsPrec1 0
+#endif
 
 class NFData1 f where
     rnf1 :: NFData a => f a -> ()
@@ -349,8 +368,11 @@ instance Wrapped (OnFunctor f a) where
 instance (NFData a,NFData1 f) => NFData (OnFunctor f a) where
     rnf = rnf1 . getFunctor
 
+-- #if MIN_VERSION_transformers(0,5,0)
+-- #else
 class Lift1 f where
     lift1 :: Lift a => f a -> ExpQ
+-- #endif
 
 instance Lift a => Lift (Const a b) where
     lift (Const x) = [e| Const $(lift x) |]
@@ -373,12 +395,13 @@ instance Lift a => Lift1 ((,) a) where
 instance Lift1 Maybe where
     lift1 = lift
 
-instance Semigroup (DList a) where
-
+#if MIN_VERSION_transformers_compat(0,5,0)
+#else
+deriving instance Generic (Compose f g a)
+#endif
 deriving instance Generic (Validation a b)
 deriving instance Generic Fingerprint
 deriving instance Generic TypeRep
-deriving instance Generic TyCon
 
 arbitraryCompose :: Arbitrary (f (g a)) => Gen (Compose f g a)
 arbitraryCompose = Compose <$> arbitrary
@@ -404,13 +427,21 @@ instance Serialize (f (g a))
         => Serialize (Compose f g a) where
 instance Serialize Fingerprint where
 instance Serialize TyCon where
+    get = mkTyCon3 <$> S.get <*> S.get <*> S.get
+    put x = do
+        S.put $ tyConPackage x
+        S.put $ tyConModule x
+        S.put $ tyConName x
 instance Serialize TypeRep where
 instance Serialize a => Serialize (NonEmpty a) where
 instance Serialize a => Serialize (Identity a) where
 
+#if MIN_VERSION_QuickCheck(2,9,0)
+#else
 instance Arbitrary a => Arbitrary (Identity a) where
     arbitrary = Identity <$> arbitrary
     shrink = genericShrink
+#endif
 instance Arbitrary (Proxy a) where
     arbitrary = return Proxy
 
