@@ -295,10 +295,13 @@ listOf' (Compose cmd) = Compose $ listOf <$> cmd
 arbitrary' :: Arbitrary a => Compose Maybe Gen a
 arbitrary' = Compose $ Just arbitrary
 
-#if MIN_VERSION_transformers(0,5,0)
+#if MIN_VERSION_dlist(0,8,0)
 #else
 instance Semigroup (DList a) where
+#endif
 
+#if MIN_VERSION_transformers(0,5,0)
+#else
 instance Eq1 Proxy where
     eq1 = (==)
 
