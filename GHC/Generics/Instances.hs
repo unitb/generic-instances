@@ -281,9 +281,6 @@ instance (Lift k,Lift a,Ord k) => Lift (Map k a) where
 instance (Lift a,Ord a) => Lift (Set a) where
     lift m = [e| S.fromList $(listE $ lift <$> S.toList m) |]
 
-instance Lift Loc where
-    lift = genericLift
-
 inductive :: (Compose Maybe Gen a -> [Compose Maybe Gen a]) -> Gen a
 inductive f = sized $ fix $ \ind n -> oneof =<< catMaybes . map getCompose . f <$> cmd ind n
     where
