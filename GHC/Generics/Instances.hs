@@ -294,7 +294,10 @@ listOf' (Compose cmd) = Compose $ listOf <$> cmd
 arbitrary' :: Arbitrary a => Compose Maybe Gen a
 arbitrary' = Compose $ Just arbitrary
 
+#if MIN_VERSION_base(4,9,0)
+#else
 instance Semigroup (DList a) where
+#endif
 
 #if MIN_VERSION_transformers(0,5,0)
 #else
