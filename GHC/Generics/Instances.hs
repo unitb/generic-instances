@@ -58,13 +58,12 @@ import Data.List.NonEmpty (NonEmpty(..))
 import Data.Proxy
 import Data.Proxy.TH
 import Data.Serialize (Serialize)
+import Data.Serialize.Instances
 import qualified Data.Serialize as S
 import Data.Set (Set)
 import qualified Data.Set as S
 import Data.Semigroup
 import Data.Tuple.Generics
-import Data.Typeable
-import Data.Typeable.Internal
 
 import GHC.Generics.Utils
 
@@ -400,24 +399,13 @@ instance Lift1 Maybe where
 deriving instance Generic (Compose f g a)
 #endif
 deriving instance Generic (Validation a b)
-deriving instance Generic Fingerprint
-deriving instance Generic TypeRep
 
 arbitraryCompose :: Arbitrary (f (g a)) => Gen (Compose f g a)
 arbitraryCompose = Compose <$> arbitrary
 
 instance (NFData a,NFData b) => NFData (Validation a b) where
 
-class Serialize1 f where
-    put1 :: Serialize a => S.Putter (f a)
-    default put1 :: Serialize (f a) => S.Putter (f a)
-    put1 = S.put
-    get1 :: Serialize a => S.Get (f a)
-    default get1 :: Serialize (f a) => S.Get (f a)
-    get1 = S.get
-
 instance Serialize1 Proxy where
-instance Serialize1 NonEmpty where
 instance Serialize1 Identity where
 instance Serialize1 Maybe where
 
@@ -425,15 +413,6 @@ instance Serialize (Proxy a) where
 
 instance Serialize (f (g a)) 
         => Serialize (Compose f g a) where
-instance Serialize Fingerprint where
-instance Serialize TyCon where
-    get = mkTyCon3 <$> S.get <*> S.get <*> S.get
-    put x = do
-        S.put $ tyConPackage x
-        S.put $ tyConModule x
-        S.put $ tyConName x
-instance Serialize TypeRep where
-instance Serialize a => Serialize (NonEmpty a) where
 instance Serialize a => Serialize (Identity a) where
 
 #if MIN_VERSION_QuickCheck(2,9,0)
