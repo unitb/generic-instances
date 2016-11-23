@@ -28,12 +28,22 @@ module GHC.Generics.Instances
     , Lift1(..), Monoid1(..)
     , Default1(..)
     , Compose(..)
+#if MIN_VERSION_transformers(0,5,0)
+    , genericLiftEq
+    , genericLiftCompare
+    , genericLiftShowsPrec
+    , genericLiftReadsPrec
+#endif
     , arbitraryCompose
     , OnFunctor(..) )
 where
 
 import Control.DeepSeq
-import Control.Monad.Fix
+import           Control.Monad.Fix
+#if MIN_VERSION_transformers(0,5,0)
+import           Control.Monad
+import           Control.Monad.State (StateT(..),state)
+#endif
 #if MIN_VERSION_transformers_compat(0,5,0)
 import Control.Monad.Trans.Instances ()
 #else
@@ -45,6 +55,8 @@ import Data.Either.Validation
 
 #if MIN_VERSION_transformers(0,5,0)
 import Prelude.Extras hiding (Lift1)
+import           Data.Functor.Classes hiding (Eq1,Ord1,Show1,Read1)
+import qualified Data.Functor.Classes as F
 #else
 import Data.Functor.Classes
 #endif
@@ -433,3 +445,131 @@ instance (Hashable k,Hashable a) => Hashable (Map k a) where
 
 instance Hashable a => Hashable (Set a) where
     hashWithSalt salt = hashWithSalt salt . S.toList
+
+#if MIN_VERSION_transformers(0,5,0)
+
+instance F.Eq1 f => F.Eq1 (M1 x c f) where
+    liftEq f (M1 x) (M1 y) = liftEq f x y
+instance Eq c => F.Eq1 (K1 x c) where
+    liftEq _ (K1 x) (K1 y) = x == y
+instance (F.Eq1 f,F.Eq1 g) => F.Eq1 (f :+: g) where
+    liftEq f (L1 x) (L1 y) = liftEq f x y
+    liftEq _ (L1 _) (R1 _) = False
+    liftEq f (R1 x) (R1 y) = liftEq f x y
+    liftEq _ (R1 _) (L1 _) = False
+instance (F.Eq1 f) => F.Eq1 (Rec1 f) where
+    liftEq f (Rec1 x) (Rec1 y) = liftEq f x y
+instance F.Eq1 Par1 where
+    liftEq f (Par1 x) (Par1 y) = f x y
+instance (F.Eq1 f,F.Eq1 g) => F.Eq1 (f :.: g) where
+    liftEq f (Comp1 x) (Comp1 y) = liftEq (liftEq f) x y
+instance (F.Eq1 f,F.Eq1 g) => F.Eq1 (f :*: g) where
+    liftEq f (x0 :*: x1) (y0 :*: y1) = liftEq f x0 y0 && liftEq f x1 y1
+
+genericLiftEq :: (Generic1 f, F.Eq1 (Rep1 f)) 
+              => (a -> b -> Bool)
+              -> f a -> f b -> Bool
+genericLiftEq f x y = liftEq f (from1 x) (from1 y)
+
+instance F.Ord1 f => F.Ord1 (M1 x c f) where
+    liftCompare f (M1 x) (M1 y) = liftCompare f x y
+instance Ord c => F.Ord1 (K1 x c) where
+    liftCompare _ (K1 x) (K1 y) = compare x y
+instance (F.Ord1 f,F.Ord1 g) => F.Ord1 (f :+: g) where
+    liftCompare f (L1 x) (L1 y) = liftCompare f x y
+    liftCompare _ (L1 _) (R1 _) = LT
+    liftCompare f (R1 x) (R1 y) = liftCompare f x y
+    liftCompare _ (R1 _) (L1 _) = GT
+instance (F.Ord1 f) => F.Ord1 (Rec1 f) where
+    liftCompare f (Rec1 x) (Rec1 y) = liftCompare f x y
+instance F.Ord1 Par1 where
+    liftCompare f (Par1 x) (Par1 y) = f x y
+instance (F.Ord1 f,F.Ord1 g) => F.Ord1 (f :.: g) where
+    liftCompare f (Comp1 x) (Comp1 y) = liftCompare (liftCompare f) x y
+instance (F.Ord1 f,F.Ord1 g) => F.Ord1 (f :*: g) where
+    liftCompare f (x0 :*: x1) (y0 :*: y1) = liftCompare f x0 y0 <> liftCompare f x1 y1
+
+genericLiftCompare :: (Generic1 f, F.Ord1 (Rep1 f)) 
+              => (a -> b -> Ordering)
+              -> f a -> f b -> Ordering
+genericLiftCompare f x y = liftCompare f (from1 x) (from1 y)
+
+withR :: (a -> b) -> ReadS a -> ReadS b
+withR f = mapped.mapped._1 %~ f
+
+instance F.Read1 f => F.Read1 (S1 c f) where
+    liftReadsPrec f g n = runStateT $ do
+        x <- state (splitAt 1)
+        guard (x == " ")
+        M1 <$> StateT (liftReadsPrec f g n)
+instance (F.Read1 f,Constructor c) => F.Read1 (C1 c f) where
+    liftReadsPrec f g n = readParen (n > 10) $ runStateT $ do
+        kw <- StateT lex
+        x <- M1 <$> StateT (liftReadsPrec f g n)
+        guard (kw == conName x)
+        return x
+instance F.Read1 f => F.Read1 (D1 c f) where
+    liftReadsPrec f g n = withR M1 $ liftReadsPrec f g n
+instance (F.Read1 f,F.Read1 g) => F.Read1 (f :+: g) where
+    liftReadsPrec f g n = withR L1 (liftReadsPrec f g n) <> withR R1 (liftReadsPrec f g n)
+instance (F.Read1 f) => F.Read1 (Rec1 f) where
+    liftReadsPrec f g n = withR Rec1 $ liftReadsPrec f g n
+instance F.Read1 Par1 where
+    liftReadsPrec f _ n = withR Par1 (f n)
+instance (F.Read1 f,F.Read1 g) => F.Read1 (f :.: g) where
+    liftReadsPrec f g n = withR Comp1 $ liftReadsPrec (liftReadsPrec f g) (liftReadList f g) n
+instance (F.Read1 f,F.Read1 g) => F.Read1 (f :*: g) where
+    liftReadsPrec f g n xs0 = do
+        (x0,xs1) <- liftReadsPrec f g n xs0
+        (x1,xs2) <- liftReadsPrec f g n xs1
+        return (x0 :*: x1,xs2)
+
+genericLiftShowsPrec :: (Generic1 f, F.Show1 (Rep1 f)) 
+              => (Int -> a -> ShowS)
+              -> ([a] -> ShowS)
+              -> Int
+              -> f a -> ShowS
+genericLiftShowsPrec f g n x = liftShowsPrec f g n (from1 x)
+
+instance (F.Show1 f,Constructor c) => F.Show1 (C1 c f) where
+    liftShowsPrec f g n c@(M1 x) = showParen (n > 10) $
+        showString (conName c) . showChar ' ' . liftShowsPrec f g n x
+instance F.Show1 f => F.Show1 (D1 c f) where
+    liftShowsPrec f g n (M1 x) = liftShowsPrec f g n x
+instance Show a => F.Show1 (K1 c a) where
+    liftShowsPrec _ _ = lmap unK1 . showsPrec
+instance F.Show1 f => F.Show1 (S1 c f) where
+    liftShowsPrec f g n (M1 x) = showChar ' ' . liftShowsPrec f g n x
+instance (F.Show1 f,F.Show1 g) => F.Show1 (f :+: g) where
+    liftShowsPrec f g n (L1 x) = liftShowsPrec f g n x
+    liftShowsPrec f g n (R1 x) = liftShowsPrec f g n x
+instance (F.Show1 f) => F.Show1 (Rec1 f) where
+    liftShowsPrec f g n (Rec1 x) = liftShowsPrec f g n x
+instance F.Show1 Par1 where
+    liftShowsPrec f _ n (Par1 x) = f n x
+instance (F.Show1 f,F.Show1 g) => F.Show1 (f :.: g) where
+    liftShowsPrec f g n (Comp1 x) = liftShowsPrec (liftShowsPrec f g) (liftShowList f g) n x
+instance (F.Show1 f,F.Show1 g) => F.Show1 (f :*: g) where
+    liftShowsPrec f g _ (x0 :*: x1) = liftShowsPrec f g 11 x0 . liftShowsPrec f g 11 x1
+
+genericLiftReadsPrec :: (Generic1 f, F.Read1 (Rep1 f)) 
+              => (Int -> ReadS a)
+              -> ReadS [a]
+              -> Int
+              -> ReadS (f a)
+genericLiftReadsPrec f g n = withR to1 $ liftReadsPrec f g n
+
+
+instance Ord k => F.Eq1 (Map k) where
+    liftEq f m0 m1 = M.null $ M.mergeWithKey (\_ x y -> guard $ not $ f x y) (() <$) (() <$) m0 m1
+instance Ord k => F.Ord1 (Map k) where
+    liftCompare f m0 m1 = foldMap id $ M.mergeWithKey (\_ x y -> Just $ f x y) (GT <$) (LT <$) m0 m1
+
+instance Show k => F.Show1 (Map k) where
+    -- liftShowsPrec showA showAs n = liftShowsPrec 
+    --             (liftShowsPrec showA showAs) 
+    --             (liftShowList showA showAs) n 
+    --         . M.toList
+    liftShowsPrec _ _ _ _ = id
+
+#endif
