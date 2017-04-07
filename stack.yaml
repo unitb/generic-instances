@@ -39,7 +39,7 @@ packages:
 - '.'
 - location:
     git: https://github.com/unitb/serialize-instances.git
-    commit: head
+    commit: ff3faa9cf976e68be8d769b5960a1b4db3b9bf63
 
 # The following packages have been ignored due to incompatibility with the
 # resolver compiler, dependency conflicts with other packages
